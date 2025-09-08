@@ -1,0 +1,23 @@
+
+# KinD cluster configuration with 3 nodes and ingress support
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: load-test-cluster
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  # 这些端口必须与ingress controller的NodePort匹配
+  - containerPort: 30080
+    hostPort: 80
+    protocol: TCP
+  - containerPort: 30443
+    hostPort: 443
+    protocol: TCP
+- role: worker
+- role: worker

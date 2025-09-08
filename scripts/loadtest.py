@@ -9,13 +9,10 @@ import statistics
 async def do_request(session, host, url):
     start = time.perf_counter()
     try:
-        async with session.get(url, headers={"Host": host}) as resp:
+        async with session.get(url) as resp:
             body = await resp.text()
             elapsed = (time.perf_counter() - start) * 1000.0
-
-            # 校验 body 内容是否匹配 host 名称（foo / bar）
-            expected = host.split(".")[0]  # foo.localhost -> foo
-            ok = resp.status == 200 and expected in body.strip()
+            ok = resp.status == 200 and url.split('.')[0] in body
             return ok, elapsed, resp.status, body.strip()
     except Exception:
         elapsed = (time.perf_counter() - start) * 1000.0
@@ -28,9 +25,9 @@ async def run_loadtest(hosts, total_requests, concurrency):
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
         sem = asyncio.Semaphore(concurrency)
 
-        async def bound_req(host):
+        async def bound_req(url):
             async with sem:
-                return await do_request(session, host, "http://127.0.0.1/")
+                return await do_request(session, url)
 
         tasks = [asyncio.create_task(bound_req(random.choice(hosts)))
                  for _ in range(total_requests)]

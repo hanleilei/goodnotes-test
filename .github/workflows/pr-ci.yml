@@ -79,11 +79,11 @@ jobs:
           
           # test foo service
           echo "Testing foo.localhost:"
-          curl -f -H "Host: foo.localhost" http://localhost:30080/ | tee /tmp/foo.txt
+          curl -f -H "Host: foo.localhost" http://foo.localhost:8080/ | tee /tmp/foo.txt
 
           # test bar service
           echo "Testing bar.localhost:"
-          curl -f -H "Host: bar.localhost" http://localhost:30080/ | tee /tmp/bar.txt
+          curl -f -H "Host: bar.localhost" http://bar.localhost:8080/ | tee /tmp/bar.txt
           
           echo "--- Response from foo ---"
           cat /tmp/foo.txt

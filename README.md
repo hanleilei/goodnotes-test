@@ -87,8 +87,8 @@ check the ingress pod is ready:
 5. local test
 
 ```shell
-curl -H "Host: foo.localhost" http://localhost
-curl -H "Host: bar.localhost" http://localhost
+curl -H "Host: foo.localhost" http://localhost:8080
+curl -H "Host: bar.localhost" http://localhost:8080
 ```
 
 ## pre-requisites

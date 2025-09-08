@@ -47,13 +47,28 @@ jobs:
         run: |
           kubectl patch service ingress-nginx-controller -n ingress-nginx -p '{"spec":{"type":"NodePort","ports":[{"name":"http","nodePort":30080,"port":80,"protocol":"TCP","targetPort":"http"},{"name":"https","nodePort":30443,"port":443,"protocol":"TCP","targetPort":"https"}]}}'
 
-      # - name: Setup port forwarding
-      #   run: |
-      #     # trick to run port-forward in background
-      #     kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8080:80 8443:443 &
-      #     sleep 5
-      #     # verify the port forwarding is working
-      #     netstat -tuln | grep ':8080\|:8443' || (echo "Port forwarding failed" && exit 1)
+      - name: Install Prometheus
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm install monitoring prometheus-community/prometheus \
+            --namespace monitoring --create-namespace
+          
+          export POD_NAME=$(kubectl get pods --namespace monitoring -l "app.kubernetes.io/name=prometheus,app.kubernetes.io/instance=monitoring" -o jsonpath="{.items[0].metadata.name}")
+          kubectl --namespace monitoring port-forward $POD_NAME 9090 &
+
+          export POD_NAME=$(kubectl get pods --namespace monitoring -l "app.kubernetes.io/name=alertmanager,app.kubernetes.io/instance=monitoring" -o jsonpath="{.items[0].metadata.name}")
+          kubectl --namespace monitoring port-forward $POD_NAME 9093 &
+
+          export POD_NAME=$(kubectl get pods --namespace monitoring -l "app=prometheus-pushgateway,component=pushgateway" -o jsonpath="{.items[0].metadata.name}")
+          kubectl --namespace monitoring port-forward $POD_NAME 9091 &  
+
+          echo "⏳ Waiting for Prometheus components..."
+          kubectl rollout status deploy/monitoring-prometheus-server -n monitoring --timeout=180s
+          kubectl rollout status statefulset/monitoring-prometheus-alertmanager -n monitoring --timeout=180s
+          kubectl rollout status deploy/monitoring-prometheus-kube-state-metrics -n monitoring --timeout=180s
+          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus-node-exporter -n monitoring --timeout=180s
+
 
       - name: Deploy applications
         run: |
@@ -99,16 +114,17 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run load test
+      - name: Port-forward Prometheus
+        run: |
+          nohup kubectl port-forward svc/monitoring-prometheus-server 9090:80 -n monitoring &
+          sleep 5
+
+      - name: Run load test and generate report
         id: loadtest
         continue-on-error: true  # if load test fails, we still want to proceed to report generation
         run: |
           echo "Running load test..."
-          python3 scripts/loadtest.py --requests 500 --concurrency 50 --hosts foo.localhost bar.localhost
-          # python scripts/loadtest.py \
-          #   --requests 1000 \
-          #   --concurrency 50 \
-          #   --hosts http://foo.localhost:8080/ http://bar.localhost:8080/
+          python3 scripts/loadtest.py --requests 500 --concurrency 50 --hosts foo.localhost bar.localhost &
           
           # check if the load test script generated a report
           if [ ! -f loadtest-report.md ]; then
@@ -116,6 +132,47 @@ jobs:
             echo "Check the logs above for details." >> loadtest-report.md
             exit 1
           fi
+
+          query_prometheus() {
+              local query="$1"
+              local start="$2"
+              local end="$3"
+              curl -s "http://localhost:9090/api/v1/query_range" \
+                  --data-urlencode "query=$query" \
+                  --data-urlencode "start=$start" \
+                  --data-urlencode "end=$end" \
+                  --data-urlencode "step=15s" | jq -r '.data.result'
+          }
+          
+          # Collect resource utilization metrics
+          echo "=== RESOURCE UTILIZATION METRICS ===" > monitoring_report.txt
+          echo "" >> monitoring_report.txt
+          
+          # CPU Usage
+          echo "CPU Usage (%):" >> monitoring_report.txt
+          query_prometheus 'rate(container_cpu_usage_seconds_total{pod=~"foo-deployment.*|bar-deployment.*"}[5m]) * 100' $START_TIME $END_TIME | \
+              jq -r '.[] | select(.values | length > 0) | "Pod: " + .metric.pod + " - Avg CPU: " + ((.values | map(.[1] | tonumber) | add / length) | tostring)' >> monitoring_report.txt
+          
+          # Memory Usage
+          echo "" >> monitoring_report.txt
+          echo "Memory Usage (MB):" >> monitoring_report.txt
+          query_prometheus 'container_memory_usage_bytes{pod=~"foo-deployment.*|bar-deployment.*"} / 1024 / 1024' $START_TIME $END_TIME | \
+              jq -r '.[] | select(.values | length > 0) | "Pod: " + .metric.pod + " - Avg Memory: " + ((.values | map(.[1] | tonumber) | add / length) | tostring)' >> monitoring_report.txt
+          
+          # Network I/O
+          echo "" >> monitoring_report.txt
+          echo "Network I/O:" >> monitoring_report.txt
+          query_prometheus 'rate(container_network_receive_bytes_total{pod=~"foo-deployment.*|bar-deployment.*"}[5m])' $START_TIME $END_TIME | \
+              jq -r '.[] | select(.values | length > 0) | "Pod: " + .metric.pod + " - Avg RX: " + ((.values | map(.[1] | tonumber) | add / length) | tostring) + " bytes/s"' >> monitoring_report.txt
+          
+          # HTTP request metrics from nginx-ingress
+          echo "" >> monitoring_report.txt
+          echo "Ingress Metrics:" >> monitoring_report.txt
+          query_prometheus 'rate(nginx_ingress_controller_requests[5m])' $START_TIME $END_TIME | \
+              jq -r '.[] | select(.values | length > 0) | "Host: " + .metric.host + " - Avg RPS: " + ((.values | map(.[1] | tonumber) | add / length) | tostring)' >> monitoring_report.txt
+          
+          # Kill prometheus port-forward
+          kill $PROMETHEUS_PID
 
       - name: Add test summary to report
         if: always()

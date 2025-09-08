@@ -54,7 +54,6 @@ Chinese network environment is quite different from other places, so please avoi
 
 - For kind create cluster: Set HTTP_PROXY, HTTPS_PROXY, and NO_PROXY environment variables. The kind process will automatically pass these to the cluster nodes. host.docker.internal is the correct value to use for macOS.
 - For kubectl apply: Unset the proxy environment variables. This allows kubectl on your host machine to communicate directly with the local cluster's API server without attempting to go through a proxy. 
-- the detail setup check the following local test steps.
 
 ## Local Test Steps
 

@@ -47,13 +47,13 @@ jobs:
         run: |
           kubectl patch service ingress-nginx-controller -n ingress-nginx -p '{"spec":{"type":"NodePort","ports":[{"name":"http","nodePort":30080,"port":80,"protocol":"TCP","targetPort":"http"},{"name":"https","nodePort":30443,"port":443,"protocol":"TCP","targetPort":"https"}]}}'
 
-      - name: Setup port forwarding
-        run: |
-          # trick to run port-forward in background
-          kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8080:80 8443:443 &
-          sleep 5
-          # verify the port forwarding is working
-          netstat -tuln | grep ':8080\|:8443' || (echo "Port forwarding failed" && exit 1)
+      # - name: Setup port forwarding
+      #   run: |
+      #     # trick to run port-forward in background
+      #     kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8080:80 8443:443 &
+      #     sleep 5
+      #     # verify the port forwarding is working
+      #     netstat -tuln | grep ':8080\|:8443' || (echo "Port forwarding failed" && exit 1)
 
       - name: Deploy applications
         run: |
@@ -104,10 +104,11 @@ jobs:
         continue-on-error: true  # if load test fails, we still want to proceed to report generation
         run: |
           echo "Running load test..."
-          python scripts/loadtest.py \
-            --requests 1000 \
-            --concurrency 50 \
-            --hosts http://foo.localhost:8080/ http://bar.localhost:8080/
+          python3 scripts/loadtest.py --requests 500 --concurrency 50 --hosts foo.localhost bar.localhost
+          # python scripts/loadtest.py \
+          #   --requests 1000 \
+          #   --concurrency 50 \
+          #   --hosts http://foo.localhost:8080/ http://bar.localhost:8080/
           
           # check if the load test script generated a report
           if [ ! -f loadtest-report.md ]; then

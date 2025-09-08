@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 使用绝对路径或相对于仓库根目录的路径
+# use GitHub CLI to comment the load test report on the PR
+# requires GITHUB_TOKEN with repo scope to be set in the environment
+# requires jq to be installed
 REPORT_FILE="${GITHUB_WORKSPACE:-.}/loadtest-report.md"
 
 if [[ ! -f "$REPORT_FILE" ]]; then
@@ -9,12 +11,12 @@ if [[ ! -f "$REPORT_FILE" ]]; then
   exit 1
 fi
 
-# 获取当前分支（在 GitHub Actions 中更可靠的方式）
+# determine the branch name and create a safe version for filenames
 BRANCH=${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}
 SAFE_BRANCH=$(echo "$BRANCH" | tr '/:' '-')
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 
-# 生成带元数据的临时文件
+# generate a temporary file with branch and timestamp info
 TEMP_FILE=$(mktemp)
 {
   echo "### Branch: \`$BRANCH\`"
@@ -23,7 +25,7 @@ TEMP_FILE=$(mktemp)
   cat "$REPORT_FILE"
 } > "$TEMP_FILE"
 
-# PR 编号优先使用参数，其次自动检测
+# PR number can be passed as an argument, otherwise try to find it based on the branch name
 PR_NUMBER=${1:-}
 if [[ -z "$PR_NUMBER" ]]; then
   PR_NUMBER=$(gh pr list --state open --json number,headRefName | jq -r \
@@ -38,6 +40,7 @@ fi
 
 echo "📤 Uploading report to PR #$PR_NUMBER ..."
 gh pr comment "$PR_NUMBER" --body-file "$TEMP_FILE"
-rm "$TEMP_FILE"  # 清理临时文件
+gh pr comment "$PR_NUMBER" --body-file "monitoring-report.md" || true  # ignore errors
+rm "$TEMP_FILE"  # cleanup temporary file
 
 echo "✅ Report uploaded successfully"

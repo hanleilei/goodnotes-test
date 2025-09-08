@@ -9,25 +9,29 @@ import statistics
 async def do_request(session, host, url):
     start = time.perf_counter()
     try:
-        async with session.get(url) as resp:
+        async with session.get(url, headers={"Host": host}) as resp:
             body = await resp.text()
             elapsed = (time.perf_counter() - start) * 1000.0
-            ok = resp.status == 200 and url.split('.')[0] in body
+
+            # check body contains expected hostname (foo/bar)
+            expected = host.split(".")[0]  # foo.localhost -> foo
+            ok = resp.status == 200 and expected in body.strip()
             return ok, elapsed, resp.status, body.strip()
-    except Exception:
+    except Exception as e:
         elapsed = (time.perf_counter() - start) * 1000.0
-        return False, elapsed, None, None
+        return False, elapsed, None, str(e)
+
 
 async def run_loadtest(hosts, total_requests, concurrency):
     results = []
-    connector = aiohttp.TCPConnector(limit=0)
+    connector = aiohttp.TCPConnector(limit=concurrency * 2)
     timeout = aiohttp.ClientTimeout(total=10)
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
         sem = asyncio.Semaphore(concurrency)
 
-        async def bound_req(url):
+        async def bound_req(host):
             async with sem:
-                return await do_request(session, url)
+                return await do_request(session, host, "http://localhost/")
 
         tasks = [asyncio.create_task(bound_req(random.choice(hosts)))
                  for _ in range(total_requests)]
@@ -39,14 +43,12 @@ async def run_loadtest(hosts, total_requests, concurrency):
 def percentile(data, p):
     if not data:
         return None
-    k = (len(data)-1) * (p/100)
+    k = (len(data) - 1) * (p / 100)
     f = int(k)
-    c = min(f+1, len(data)-1)
+    c = min(f + 1, len(data) - 1)
     if f == c:
         return data[int(k)]
-    d0 = data[f] * (c-k)
-    d1 = data[c] * (k-f)
-    return d0+d1
+    return data[f] + (data[c] - data[f]) * (k - f)
 
 def main():
     parser = argparse.ArgumentParser()

@@ -95,4 +95,3 @@ curl -H "Host: bar.localhost" http://localhost
 - kubectl: brew install kubectl
 - kind: brew install kind
 - nginx ingress controller: brew install ingress-nginx
-# goodnotes-test

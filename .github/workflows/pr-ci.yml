@@ -39,8 +39,10 @@ jobs:
 
       - name: Wait for ingress-nginx ready
         run: |
-          kubectl -n ingress-nginx wait --for=condition=Ready pod --all --timeout=500s
-          kubectl -n ingress-nginx wait --for=condition=Available deployment/ingress-nginx-controller --timeout=500s
+          # kubectl -n ingress-nginx wait --for=condition=Ready pod --all --timeout=500s
+          # kubectl -n ingress-nginx wait --for=condition=Available deployment/ingress-nginx-controller --timeout=500s      
+          kubectl wait --namespace ingress-nginx   --for=condition=ready pod   --selector=app.kubernetes.io/component=controller   --timeout=300s
+
       
       - name: Patch ingress-nginx service to NodePort
         run: |

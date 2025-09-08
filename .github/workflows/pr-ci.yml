@@ -65,7 +65,7 @@ jobs:
 
           echo "⏳ Waiting for Prometheus components..."
           kubectl rollout status deploy/monitoring-prometheus-server -n monitoring --timeout=180s
-          kubectl rollout status deploy/monitoring-prometheus-alertmanager -n monitoring --timeout=180s
+          kubectl rollout status statefulset/monitoring-prometheus-alertmanager -n monitoring --timeout=180s
           kubectl rollout status deploy/monitoring-prometheus-kube-state-metrics -n monitoring --timeout=180s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus-node-exporter -n monitoring --timeout=180s
 

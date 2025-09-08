@@ -1,0 +1,143 @@
+name: PR CI - kind + ingress + loadtest
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  kind-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # use the official KinD Action
+      - name: Setup KinD
+        uses: helm/kind-action@v1
+        with:
+          version: "v0.24.0"
+          config: k8s/kind-config.yaml
+          cluster_name: kind
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'latest'
+
+      - name: Show cluster info
+        run: |
+          kubectl get nodes -o wide
+          kubectl cluster-info
+
+      - name: Install ingress-nginx
+        run: |
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+
+      - name: Wait for ingress-nginx ready
+        run: |
+          kubectl -n ingress-nginx wait --for=condition=Ready pod --all --timeout=300s
+          kubectl -n ingress-nginx wait --for=condition=Available deployment/ingress-nginx-controller --timeout=300s
+      
+      - name: Patch ingress-nginx service to NodePort
+        run: |
+          kubectl patch service ingress-nginx-controller -n ingress-nginx -p '{"spec":{"type":"NodePort","ports":[{"name":"http","nodePort":30080,"port":80,"protocol":"TCP","targetPort":"http"},{"name":"https","nodePort":30443,"port":443,"protocol":"TCP","targetPort":"https"}]}}'
+
+      - name: Setup port forwarding
+        run: |
+          # trick to run port-forward in background
+          kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8080:80 8443:443 &
+          sleep 5
+          # verify the port forwarding is working
+          netstat -tuln | grep ':8080\|:8443' || (echo "Port forwarding failed" && exit 1)
+
+      - name: Deploy applications
+        run: |
+          kubectl apply -f k8s/k8s-manifest.yaml
+
+      - name: Wait for deployments
+        run: |
+          kubectl rollout status deploy/foo --timeout=120s
+          kubectl rollout status deploy/bar --timeout=120s
+          
+          # verify pods are running
+          kubectl get pods -l app=foo -o jsonpath='{.items[*].status.phase}' | grep -q Running
+          kubectl get pods -l app=bar -o jsonpath='{.items[*].status.phase}' | grep -q Running
+
+      - name: Verify ingress connectivity
+        run: |
+          set -e
+          echo "Testing ingress connectivity..."
+
+          # wait for ingress to be ready
+          sleep 10
+          
+          # test foo service
+          echo "Testing foo.localhost:"
+          curl -f -H "Host: foo.localhost" http://localhost:30080/ | tee /tmp/foo.txt
+
+          # test bar service
+          echo "Testing bar.localhost:"
+          curl -f -H "Host: bar.localhost" http://localhost:30080/ | tee /tmp/bar.txt
+          
+          echo "--- Response from foo ---"
+          cat /tmp/foo.txt
+          echo "--- Response from bar ---"
+          cat /tmp/bar.txt
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          pip install aiohttp
+
+      - name: Run load test
+        id: loadtest
+        continue-on-error: true  # if load test fails, we still want to proceed to report generation
+        run: |
+          echo "Running load test..."
+          python scripts/loadtest.py \
+            --requests 1000 \
+            --concurrency 50 \
+            --hosts http://foo.localhost:8080/ http://bar.localhost:8080/
+          
+          # check if the load test script generated a report
+          if [ ! -f loadtest-report.md ]; then
+            echo "⚠️ Load test failed to generate report" > loadtest-report.md
+            echo "Check the logs above for details." >> loadtest-report.md
+            exit 1
+          fi
+
+      - name: Add test summary to report
+        if: always()
+        run: |
+          echo "## Test Environment" >> loadtest-report.md
+          echo "- Runner: ubuntu-latest" >> loadtest-report.md
+          echo "- KinD version: v0.24.0" >> loadtest-report.md
+          echo "- Kubernetes version: $(kubectl version --short --client)" >> loadtest-report.md
+          echo "- Test status: ${{ steps.loadtest.outcome }}" >> loadtest-report.md
+          echo "- Timestamp: $(date -u)" >> loadtest-report.md
+
+      - name: Post results as PR comment
+        if: always()
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: loadtest-report.md
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # cleanup port-forward processes
+          pkill -f "kubectl port-forward" || true
+
+          # show final cluster state (for debugging)
+          echo "Final cluster state:"
+          kubectl get all --all-namespaces || true

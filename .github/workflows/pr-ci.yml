@@ -121,12 +121,12 @@ jobs:
           echo "## Test Environment" >> loadtest-report.md
           echo "- Runner: ubuntu-latest" >> loadtest-report.md
           echo "- KinD version: v0.24.0" >> loadtest-report.md
-          echo "- Kubernetes version: $(kubectl version --short --client)" >> loadtest-report.md
+          echo "- Kubernetes version: $(kubectl version)" >> loadtest-report.md
           echo "- Test status: ${{ steps.loadtest.outcome }}" >> loadtest-report.md
           echo "- Timestamp: $(date -u)" >> loadtest-report.md
 
       - name: comment PR
-        run: bash scripts/comment-pr.sh
+        run: bash scripts/comment-pr.sh ${{ github.event.pull_request.number }} loadtest-report.md
 
       - name: Cleanup
         if: always()

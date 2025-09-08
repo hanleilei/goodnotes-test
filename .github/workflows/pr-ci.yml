@@ -55,7 +55,13 @@ jobs:
             --namespace monitoring --create-namespace
           
           export POD_NAME=$(kubectl get pods --namespace monitoring -l "app.kubernetes.io/name=prometheus,app.kubernetes.io/instance=monitoring" -o jsonpath="{.items[0].metadata.name}")
-          kubectl --namespace monitoring port-forward $POD_NAME 9090
+          kubectl --namespace monitoring port-forward $POD_NAME 9090 &
+
+          export POD_NAME=$(kubectl get pods --namespace monitoring -l "app.kubernetes.io/name=alertmanager,app.kubernetes.io/instance=monitoring" -o jsonpath="{.items[0].metadata.name}")
+          kubectl --namespace monitoring port-forward $POD_NAME 9093 &
+
+          export POD_NAME=$(kubectl get pods --namespace monitoring -l "app=prometheus-pushgateway,component=pushgateway" -o jsonpath="{.items[0].metadata.name}")
+          kubectl --namespace monitoring port-forward $POD_NAME 9091 &  
 
           echo "⏳ Waiting for Prometheus components..."
           kubectl rollout status deploy/monitoring-prometheus-server -n monitoring --timeout=180s

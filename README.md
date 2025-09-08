@@ -53,7 +53,7 @@ This assignment should take about 3 to 5 hours of your time depending on your le
 Chinese network environment is quite different from other places, so please avoid using some tools or images that are not accessible in china, for example, kindest/node image, or some actions in github actions marketplace.
 
 - For kind create cluster: Set HTTP_PROXY, HTTPS_PROXY, and NO_PROXY environment variables. The kind process will automatically pass these to the cluster nodes. host.docker.internal is the correct value to use for macOS.
-- For kubectl apply: Unset the proxy environment variables. This allows kubectl on your host machine to communicate directly with the local cluster's API server without attempting to go through a proxy. 
+- For kubectl apply: Unset the proxy environment variables. This allows kubectl on your host machine to communicate directly with the local cluster's API server without attempting to go through a proxy.
 
 ## Local Test Steps
 
@@ -81,6 +81,8 @@ export NO_PROXY=localhost,127.0.0.1,.svc,.cluster.local,10.96.0.0/12
 
 `kubectl apply -f k8s/k8s-manifest.yaml`
 `kubectl patch service ingress-nginx-controller -n ingress-nginx -p '{"spec":{"type":"NodePort","ports":[{"name":"http","nodePort":30080,"port":80,"protocol":"TCP","targetPort":"http"},{"name":"https","nodePort":30443,"port":443,"protocol":"TCP","targetPort":"https"}]}}'`
+check the ingress pod is ready:
+`kubectl wait --namespace ingress-nginx   --for=condition=ready pod   --selector=app.kubernetes.io/component=controller   --timeout=300s`
 
 5. local test
 
